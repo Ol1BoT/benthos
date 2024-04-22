@@ -28,14 +28,15 @@ import (
 
 const (
 	// S3 Input SQS Fields
-	s3iSQSFieldURL             = "url"
-	s3iSQSFieldEndpoint        = "endpoint"
-	s3iSQSFieldEnvelopePath    = "envelope_path"
-	s3iSQSFieldKeyPath         = "key_path"
-	s3iSQSFieldBucketPath      = "bucket_path"
-	s3iSQSFieldDelayPeriod     = "delay_period"
-	s3iSQSFieldMaxMessages     = "max_messages"
-	s3iSQSFieldWaitTimeSeconds = "wait_time_seconds"
+	s3iSQSFieldURL                  = "url"
+	s3iSQSFieldEndpoint             = "endpoint"
+	s3iSQSFieldEnvelopePath         = "envelope_path"
+	s3iSQSFieldKeyPath              = "key_path"
+	s3iSQSFieldBucketPath           = "bucket_path"
+	s3iSQSFieldDelayPeriod          = "delay_period"
+	s3iSQSFieldSkipDirectoryMessage = "skip_directory_messages"
+	s3iSQSFieldMaxMessages          = "max_messages"
+	s3iSQSFieldWaitTimeSeconds      = "wait_time_seconds"
 
 	// S3 Input Fields
 	s3iFieldBucket             = "bucket"
@@ -46,14 +47,15 @@ const (
 )
 
 type s3iSQSConfig struct {
-	URL             string
-	Endpoint        string
-	EnvelopePath    string
-	KeyPath         string
-	BucketPath      string
-	DelayPeriod     string
-	MaxMessages     int64
-	WaitTimeSeconds int64
+	URL                   string
+	Endpoint              string
+	EnvelopePath          string
+	KeyPath               string
+	BucketPath            string
+	DelayPeriod           string
+	SkipDirectoryMessages bool
+	MaxMessages           int64
+	WaitTimeSeconds       int64
 }
 
 func s3iSQSConfigFromParsed(pConf *service.ParsedConfig) (conf s3iSQSConfig, err error) {
@@ -73,6 +75,9 @@ func s3iSQSConfigFromParsed(pConf *service.ParsedConfig) (conf s3iSQSConfig, err
 		return
 	}
 	if conf.DelayPeriod, err = pConf.FieldString(s3iSQSFieldDelayPeriod); err != nil {
+		return
+	}
+	if conf.SkipDirectoryMessages, err = pConf.FieldBool(s3iSQSFieldSkipDirectoryMessage); err != nil {
 		return
 	}
 	if conf.MaxMessages, err = int64Field(pConf, s3iSQSFieldMaxMessages); err != nil {
@@ -202,6 +207,9 @@ You can access these metadata fields using [function interpolation](/docs/config
 					Example("5m").
 					Default("").
 					Advanced(),
+				service.NewBoolField(s3iSQSFieldSkipDirectoryMessage).
+					Description("Skip SQS message when a directory is created to avoid deletion.").
+					Default(false),
 				service.NewIntField(s3iSQSFieldMaxMessages).
 					Description("The maximum number of SQS messages to consume from each request.").
 					Default(10).
@@ -488,6 +496,9 @@ func (s *sqsTargetReader) parseObjectPaths(sqsMsg *string) ([]s3ObjectTarget, er
 	for i, key := range keys {
 		if key, err = url.QueryUnescape(key); err != nil {
 			return nil, fmt.Errorf("failed to parse key from SQS message: %v", err)
+		}
+		if strings.HasSuffix(key, "/") && s.conf.SQS.SkipDirectoryMessages {
+			continue
 		}
 		bucket := s.conf.Bucket
 		if len(buckets) > i {
